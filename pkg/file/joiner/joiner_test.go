@@ -22,6 +22,7 @@ import (
 	"github.com/ethersphere/bee/pkg/file/pipeline/builder"
 	"github.com/ethersphere/bee/pkg/file/splitter"
 	filetest "github.com/ethersphere/bee/pkg/file/testing"
+	testingsoc "github.com/ethersphere/bee/pkg/soc/testing"
 	"github.com/ethersphere/bee/pkg/storage"
 	"github.com/ethersphere/bee/pkg/storage/mock"
 	testingc "github.com/ethersphere/bee/pkg/storage/testing"
@@ -925,5 +926,57 @@ func TestJoinerIterateChunkAddresses_Encrypted(t *testing.T) {
 		if len(v) != 64 {
 			t.Fatalf("got wrong ref size %d, %s", len(v), v)
 		}
+	}
+}
+
+func TestJoinerIterateChunkAddressesSOC(t *testing.T) {
+	store := mock.NewStorer()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	s := testingsoc.GenerateMockSOC(t, []byte{0})
+	sch := s.Chunk()
+
+	_, err := store.Put(ctx, storage.ModePutUploadPin, sch)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	createdAddresses := []swarm.Address{sch.Address()}
+
+	j, _, err := joiner.New(ctx, store, sch.Address())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	foundAddresses := make(map[string]struct{})
+	var foundAddressesMu sync.Mutex
+
+	err = j.IterateChunkAddresses(func(addr swarm.Address) error {
+		foundAddressesMu.Lock()
+		defer foundAddressesMu.Unlock()
+
+		foundAddresses[addr.String()] = struct{}{}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(createdAddresses) != len(foundAddresses) {
+		t.Fatalf("expected to find %d addresses, got %d", len(createdAddresses), len(foundAddresses))
+	}
+
+	checkAddressFound := func(t *testing.T, foundAddresses map[string]struct{}, address swarm.Address) {
+		t.Helper()
+
+		if _, ok := foundAddresses[address.String()]; !ok {
+			t.Fatalf("expected address %s not found", address.String())
+		}
+	}
+
+	for _, createdAddress := range createdAddresses {
+		checkAddressFound(t, foundAddresses, createdAddress)
 	}
 }
