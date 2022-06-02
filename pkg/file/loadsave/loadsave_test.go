@@ -14,6 +14,7 @@ import (
 	"github.com/ethersphere/bee/pkg/file/loadsave"
 	"github.com/ethersphere/bee/pkg/file/pipeline"
 	"github.com/ethersphere/bee/pkg/file/pipeline/builder"
+	testingsoc "github.com/ethersphere/bee/pkg/soc/testing"
 	"github.com/ethersphere/bee/pkg/storage"
 	"github.com/ethersphere/bee/pkg/storage/mock"
 	"github.com/ethersphere/bee/pkg/swarm"
@@ -41,6 +42,25 @@ func TestLoadSave(t *testing.T) {
 	}
 	if !bytes.Equal(data, b) {
 		t.Fatal("wrong data in response")
+	}
+}
+
+func TestLoadSaveSOC(t *testing.T) {
+	store := mock.NewStorer()
+	s := testingsoc.GenerateMockSOC(t, []byte{0})
+	sch := s.Chunk()
+
+	_, err := store.Put(context.Background(), storage.ModePutUploadPin, sch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ls := loadsave.New(store, pipelineFn(store))
+	b, err := ls.Load(context.Background(), sch.Address().Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(sch.Data(), b) {
+		t.Fatal("wrong data in response", string(sch.Data()), "       ", string(b))
 	}
 }
 
