@@ -157,6 +157,7 @@ type Options struct {
 	WarmupTime                 time.Duration
 	ChainID                    int64
 	Resync                     bool
+	SkipInitialSync            bool
 	BlockProfile               bool
 	MutexProfile               bool
 	StaticNodes                []swarm.Address
@@ -696,25 +697,29 @@ func NewBee(interrupt chan os.Signal, addr string, publicKey *ecdsa.PublicKey, s
 	batchStore.SetRadiusSetter(kad)
 
 	if batchSvc != nil && chainEnabled {
-		syncedChan, err := batchSvc.Start(postageSyncStart, initBatchState)
-		if err != nil {
-			return nil, fmt.Errorf("unable to start batch service: %w", err)
-		}
-		// wait for the postage contract listener to sync
-		logger.Info("waiting to sync postage contract data, this may take a while... more info available in Debug loglevel")
-
-		// arguably this is not a very nice solution since we dont support
-		// interrupts at this stage of the application lifecycle. some changes
-		// would be needed on the cmd level to support context cancellation at
-		// this stage
-		select {
-		case err = <-syncedChan:
+		go func() error {
+			syncedChan, err := batchSvc.Start(postageSyncStart, initBatchState)
 			if err != nil {
-				return nil, err
+				return fmt.Errorf("unable to start batch service: %w", err)
 			}
-		case <-interrupt:
-			return nil, ErrInterruped
-		}
+			// wait for the postage contract listener to sync
+			logger.Info("waiting to sync postage contract data, this may take a while... more info available in Debug loglevel")
+
+			// arguably this is not a very nice solution since we dont support
+			// interrupts at this stage of the application lifecycle. some changes
+			// would be needed on the cmd level to support context cancellation at
+			// this stage
+			select {
+			case err = <-syncedChan:
+				if err != nil {
+					return err
+				}
+			case <-interrupt:
+				return ErrInterruped
+			}
+
+			return nil
+		}()
 	}
 
 	pricer := pricer.NewFixedPricer(swarmAddress, basePrice)
